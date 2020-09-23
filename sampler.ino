@@ -1,8 +1,5 @@
 // TO DO:
 // Document
-// Fix random start time
-// Seed random
-// Fix random file?
 // Add support for trigger in
 // Add support for clock in
 // make off button turn volume to 0
@@ -66,7 +63,8 @@ int currentDirNum=0;
 int totalDirs=0;
 char directoryNames[20][10];
 int tempDir;
-int temp=0;
+int formerVolume=0;
+
 unsigned long currentFileSize=0;
 
 File currentSample;
@@ -501,7 +499,7 @@ void loop(){
       if(encPos4>255) encPos4=255;
       else if(encPos4<0) encPos4=0;
       currentVol=encPos4;
-      musicPlayer.setVolume(currentVol, currentVol);
+      if(darkMode!=DARKMODE_DARK) musicPlayer.setVolume(currentVol, currentVol);
       
       int volPer=((255-encPos4)*100)/255;   // So at 0, this would be 100% and at 255 this would be 0
       
@@ -629,6 +627,10 @@ void loop(){
           digitalWrite(REDLED, LOW);  
         } 
         else if(darkMode==DARKMODE_LED_OFF){
+          formerVolume=currentVol;
+          currentVol=0;
+          musicPlayer.setVolume(0, 0);
+          Serial.println("SetVOl");
           darkMode=DARKMODE_DARK;
           digitalWrite(BLUELED, LOW);  
           digitalWrite(REDLED, LOW);   
@@ -638,6 +640,8 @@ void loop(){
         }
         else{
           darkMode=DARKMODE_LIGHT;
+          currentVol=formerVolume;
+          musicPlayer.setVolume(currentVol, currentVol);
           display.clearDisplay();
           display.setTextSize(1);
           display.setTextColor(WHITE);
