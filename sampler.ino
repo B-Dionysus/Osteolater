@@ -125,6 +125,9 @@ uint8_t buttonState5;
 #define pinDIRB A15
 #define pinDIRBUTTON 48
 
+#define CLOCK_IN A0
+#define TRIGGER_IN A1
+
 #define STEPS 4
 #define BPMMODE 1
 #define VOLMODE 2
@@ -208,8 +211,10 @@ void setup() {
   pinMode(REDLED, OUTPUT);
   pinMode(BLUELED, OUTPUT);
 
-  pinMode(32, INPUT);
-  pinMode(34, INPUT);
+//  // In theory, these should be for detecting CV...
+//  pinMode(CLOCK_IN, INPUT_PULLUP);
+//  pinMode(TRIGGER_IN, INPUT_PULLUP);
+
   // Set volume for left, right channels. lower numbers == louder volume!
   musicPlayer.setVolume(currentVol, currentVol);
 
@@ -405,10 +410,6 @@ void playTick(int currentTime){
 void loop(){
   playTick(millis());
       
-//  Serial.print(digitalRead(32));
-//  Serial.print(digitalRead(34));
-//  Serial.print(analogRead(32));
-//  Serial.print(analogRead(34));
 /************************************************************************************************************************************
  *                                                                                                                    rotary encoders!
  ************************************************************************************************************************************/
