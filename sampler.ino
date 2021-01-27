@@ -1,7 +1,6 @@
 // TO DO:
 // Document
 // Add support for trigger in
-// Add support for clock in
 // make off button turn volume to 0
 // make on button turn volume to previous level
 
@@ -50,6 +49,7 @@ int currentVol=20;
 #define DARKMODE_LED_OFF 2
 
 int bpm = 120;
+int oldBpm = 120;
 int tickStart=0;
 int beatsSincePlay=0;
 int beatFreq=4;       // How many beats between samples
@@ -69,9 +69,16 @@ unsigned long currentFileSize=0;
 
 File currentSample;
 File currentDir;
-#define BPMLED 1
-#define SAMPLED 2
-
+//                              Connections to modular synth
+#define BPMCONNECTED A1
+#define BPMPULSE A0
+#define SAMPCONNECTED A2
+#define SAMPPULSE A3
+bool externalTriggerConnected=false;
+bool externalClockIsConnected=false;
+bool bpmPulseOn=false;
+bool samplePulseOn=false;
+unsigned long prevTime=0;
 
 #define REDLED 22
 #define BLUELED 24
@@ -124,9 +131,6 @@ uint8_t buttonState5;
 #define pinDIRA A14
 #define pinDIRB A15
 #define pinDIRBUTTON 48
-
-#define CLOCK_IN A0
-#define TRIGGER_IN A1
 
 #define STEPS 4
 #define BPMMODE 1
@@ -188,6 +192,12 @@ void loadSample(char* sampleName){
 ************************************************************************************************************************************/
 
 void setup() {
+  // Initialize the pins for receiving modular systhesis data
+  pinMode(BPMPULSE, INPUT_PULLUP);
+  pinMode(BPMCONNECTED, INPUT_PULLUP);
+  pinMode(SAMPPULSE, INPUT_PULLUP);
+  pinMode(SAMPCONNECTED, INPUT_PULLUP);
+  
   Serial.begin(9600);
    randomSeed(analogRead(0));
   // initialise the music player
@@ -323,10 +333,10 @@ void chooseNewSample(int chance) {
  *                                                                                                                    playSample()
 ************************************************************************************************************************************/
 void playSample(int chance){
-  Serial.println("playing...");
+//  Serial.println("playing...");
   char fullSamplePath[50];
 
-  Serial.print(currentDir.name()); Serial.println(currentSample.name());
+//  Serial.print(currentDir.name()); Serial.println(currentSample.name());
   sprintf(fullSamplePath, "%s/%s",currentDir.name(),currentSample.name()); 
 //  Serial.print("Full path: "); Serial.println(fullSamplePath);
  
@@ -360,17 +370,126 @@ void playSample(int chance){
 } 
 
 /************************************************************************************************************************************
+ *                                                                                                                    calculateBPM()
+************************************************************************************************************************************/
+int calculateBPM(unsigned long newTime){
+  
+  if(prevTime==0){
+    // This is the first time we've connected the external clock
+    // so we don't have enough data to figure out the bpm
+    prevTime=newTime;
+    return bpm;
+  }
+  else{
+    // gap is the number of milliseconds between 
+    float gap=newTime-prevTime;    
+    float newBPM=(gap/1000);
+    newBPM=60/newBPM;
+    // There can be some slight variation in bpm, depending on the CV
+    // Only update the display if there's a big change (10bpm in either direction)
+    if(newBPM<(bpm-10) || newBPM>(bpm+10)){
+      bpm=newBPM;
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.setTextSize(1);
+      display.setTextColor(WHITE);
+      display.println("External BPM");
+      
+      display.setTextSize(3);
+      display.setTextColor(WHITE);
+      display.print(bpm);
+      display.setTextSize(1);
+      display.print("bpm");
+      if(darkMode!=DARKMODE_DARK) display.display();
+    }
+    prevTime=newTime;  
+    return bpm;
+  }
+}
+/************************************************************************************************************************************
  *                                                                                                                    playTick()
 ************************************************************************************************************************************/
 
 void playTick(int currentTime){
   int change=currentTime-tickStart; // change slowly counts up to millisecondsPerBeat, e.g., 500, and is reset each beat 
+  #define OFF 900
+  
+  //                                               External Clock
+  if(analogRead(BPMCONNECTED)<OFF) externalClockIsConnected=true;
+  // If we are connected to an external clock, we need to wait to receive a pulse
+  // When we get the fist hit from the pulse, we turn on bpmPulseOn and calculate bpm
+  // When we get the first lack of a hit from the pulse, we can turn it off again.
+  if(externalClockIsConnected){
+    if(analogRead(BPMPULSE)>=OFF){
+      if(!bpmPulseOn){  
+        // The BPM Pulse has just started
+        bpmPulseOn=true;
+        calculateBPM(currentTime);
+      }
+    }
+    else if(analogRead(BPMPULSE<OFF)){
+      if(bpmPulseOn){
+        // The pulse just ended
+        bpmPulseOn=false;
+      }
+    }
+  }
 
+  if(analogRead(BPMCONNECTED)>OFF){
+    // If we aren't connected to an external clock, check out state variable
+    // If its wrong, then this just happned. Update the sate variable, restore the bpm,
+    // and set prevTime to 0.
+    if(externalClockIsConnected){
+      bpmPulseOn=false;
+      externalClockIsConnected=false;
+      bpm=oldBpm;
+      prevTime=0;
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.setTextSize(1);
+      display.setTextColor(WHITE);
+      display.println("External BPM");
+      
+      display.setTextSize(3);
+      display.setTextColor(WHITE);
+      display.print(bpm);
+      display.setTextSize(1);
+      display.print("bpm");
+      if(darkMode!=DARKMODE_DARK) display.display();
+    }
+  }
+  //                                               External Trigger
+//    Serial.println(analogRead(BPMCONNECTED));  
+//    Serial.println("BPM!!!!!");
+  if(analogRead(SAMPCONNECTED)<OFF)externalTriggerConnected=true;
+  else{
+    externalTriggerConnected=false;
+    samplePulseOn=false;
+  }
+  
+  if(externalTriggerConnected){
+    if(analogRead(SAMPPULSE)>=OFF){
+      if(!samplePulseOn){        
+        if(LEDBLINK && !darkMode) digitalWrite(REDLED, HIGH);  
+        Serial.println("SAMPLE!!!!!");
+        samplePulseOn=true;
+        musicPlayer.stopPlaying(); 
+        chooseNewSample(newClipChance);
+        playSample(newClipChance);
+        sampleStartTime=currentTime;
+        playTime=0;
+      }
+    }
+    else if(analogRead(SAMPPULSE)<OFF){
+      if(samplePulseOn) samplePulseOn=false;
+    }
+   
+  }
   if(change>LEDON){
      digitalWrite(REDLED, LOW);     
      digitalWrite(BLUELED, LOW);     
   }
-  // Should we stop the music?
+    // Should we stop the music?
   if(musicPlayer.playingMusic){
     playTime=currentTime-sampleStartTime; // How long, in milliseconds, has the sample been playing?
     
@@ -380,25 +499,26 @@ void playTick(int currentTime){
       playTime=0;
     }
   }
-  
-  float millisecondsPerBeat=(60.0/bpm)*1000; // For example, at 120 bpm this would be 60/120*1000=500ms per beat, two beats a second
-    
-  if(change>(millisecondsPerBeat)) {
-    tickStart=currentTime;
-    // REGULAR Beat---------------------------------------------------------------------------------
-    if(LEDBLINK && !darkMode) digitalWrite(BLUELED, HIGH);  
-    beatsSincePlay++;
-    if(beatsSincePlay>=beatFreq){
-      beatsSincePlay=0;
-      // PLAY THAT SAMPLE!!!!!--------------------------------------------------------------------
-      if(!musicPlayer.playingMusic){
-        if(LEDBLINK && !darkMode) digitalWrite(REDLED, HIGH);  
-        chooseNewSample(newClipChance);
-        playSample(newClipChance);
-        sampleStartTime=currentTime;
-        playTime=0;
+  // If there is no external trigger, then we play the clip every beatFreq beats (e.g., one every four beats, say) unless a clip is already playing
+  if(!externalTriggerConnected){
+    float millisecondsPerBeat=(60.0/bpm)*1000; // For example, at 120 bpm this would be 60/120*1000=500ms per beat, two beats a second
+    if(change>(millisecondsPerBeat)) {
+      tickStart=currentTime;
+      // REGULAR Beat---------------------------------------------------------------------------------
+      if(LEDBLINK && !darkMode) digitalWrite(BLUELED, HIGH);  
+      beatsSincePlay++;
+      if(beatsSincePlay>=beatFreq){
+        beatsSincePlay=0;
+        // PLAY THAT SAMPLE!!!!!--------------------------------------------------------------------
+        if(!musicPlayer.playingMusic){
+          if(LEDBLINK && !darkMode) digitalWrite(REDLED, HIGH);  
+          chooseNewSample(newClipChance);
+          playSample(newClipChance);
+          sampleStartTime=currentTime;
+          playTime=0;
+        }
+       // toggleLED(SAMPLED, 1);      
       }
-     // toggleLED(SAMPLED, 1);      
     }
   }
 }
@@ -520,7 +640,10 @@ void loop(){
     else if(encoder4Mode==BPMMODE){
       if(encPos4<0) encPos4=0;
       oldEncPos4 = encPos4;
-      bpm=encPos4;
+      if(!externalClockIsConnected){
+        bpm=encPos4;
+        oldBpm=bpm;
+      }
       
       display.clearDisplay();
       display.setCursor(0,0);
